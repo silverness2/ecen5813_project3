@@ -246,8 +246,8 @@ void DMA0_IRQHandler(void)
     */
 
     // For debugging...
-    PRINTF("In IRQ(), addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
-    PRINTF("In IRQ(), addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
+    PRINTF("In start of IRQ(), addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
+    PRINTF("In start of IRQ(), addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
 
     if (DMA0->DMA[0].DSR_BCR & DMA_DSR_BCR_DONE(1))
     {
@@ -255,11 +255,15 @@ void DMA0_IRQHandler(void)
 	DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_DONE(1);
 
         // Reset destination address to beginning.
-	DMA0->DMA[0].DAR |= (uint32_t)&my_buffer[0];
+	DMA0->DMA[0].DAR = (uint32_t)&my_buffer[0];
 
 	// Reset BCR size.
 	DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_BCR(BYTE_COUNT);
 
 	dma_done = 1;
+
+        // For debugging...
+        PRINTF("In IRQ() after resetting DAR, addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
+	PRINTF("In IRQ() after resetting DAR, addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
     }
 }

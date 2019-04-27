@@ -232,33 +232,34 @@ void printBits(char *name, uint32_t num)
 
 void DMA0_IRQHandler(void)
 {
-	/*
-	DSR_BCR DONE flag:
-	Set when all DMA controller transactions complete as determined by transfer
-	count, or based on error conditions. When BCR reaches zero, DONE is set when
-	the final transfer completes successfully. DONE can also be used to abort a
-	transfer by resetting the status bits. When a transfer completes, software
-	must clear DONE before reprogramming the DMA.
+    /*
+    DSR_BCR DONE flag:
+    Set when all DMA controller transactions complete as determined by transfer
+    count, or based on error conditions. When BCR reaches zero, DONE is set when
+    the final transfer completes successfully. DONE can also be used to abort a
+    transfer by resetting the status bits. When a transfer completes, software
+    must clear DONE before reprogramming the DMA.
     0: DMA transfer is not yet complete. Writing a 0 has no effect.
-	1: DMA transfer completed. Writing a 1 to this bit clears all DMA status bits and should be used in an
-	   interrupt service routine to clear the DMA interrupt and error bits
-	*/
+    1: DMA transfer completed. Writing a 1 to this bit clears all DMA status
+       bits and should be used in an interrupt service routine to clear the DMA
+       interrupt and error bits
+    */
 
     // For debugging...
     PRINTF("In IRQ(), addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
-	PRINTF("In IRQ(), addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
+    PRINTF("In IRQ(), addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
 
-	if (DMA0->DMA[0].DSR_BCR & DMA_DSR_BCR_DONE(1))
-	{
-		// Clear the DMA interrupt and error bits.
-		DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_DONE(1);
+    if (DMA0->DMA[0].DSR_BCR & DMA_DSR_BCR_DONE(1))
+    {
+  	// Clear the DMA interrupt and error bits.
+	DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_DONE(1);
 
-		// Reset destination address to beginning.
-		DMA0->DMA[0].DAR |= (uint32_t)&my_buffer[0];
+        // Reset destination address to beginning.
+	DMA0->DMA[0].DAR |= (uint32_t)&my_buffer[0];
 
-		// Reset BCR size.
-		DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_BCR(BYTE_COUNT);
+	// Reset BCR size.
+	DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_BCR(BYTE_COUNT);
 
-		dma_done = 1;
-	}
+	dma_done = 1;
+    }
 }

@@ -17,17 +17,20 @@
 #define __ADC_H
 
 #define NUM_SAMPLES 256
-#define BYTE_COUNT ((NUM_SAMPLES/2) * sizeof(uint32_t))
+#define BYTE_COUNT ((NUM_SAMPLES/2) * sizeof(uint32_t)) // gives 512 bytes
 
 extern uint32_t my_buffer[NUM_SAMPLES];
 extern int32_t dma_done;
 
 // Functions.
 void adc_init();
-void adc_init_dma();
+void adc_dma_init();
+void dma_init();
 int adc_did_complete_convert();
 uint16_t adc_get_digital_output();
 uint16_t adc_get_digital_output_blocking();
 void printBits(char *name, uint32_t num);
 
 #endif
+
+

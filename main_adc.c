@@ -18,7 +18,7 @@
  *   the device).
  * - Can use putty or screen for terminal emulation.
  * - For example: sudo screen /dev/ttyACM1 115200
- * 
+ *
  * 2^16 = 65536. So, scale on a 16-bit ADC is [0, 65535] counts (i.e. raw
  * sample ADC values). Ex. If input voltage=1V and ref voltage=3V, the
  * result, no matter if 8, 16, or 24 bit resolution, is 1/3.  The better the
@@ -92,25 +92,35 @@ int main(void) {
 #endif
 
 #ifdef USE_INTERRUPT
-    // Initialize ADC hardware.
-    adc_init();
 
-    // Initialize DMA hardware.
-    adc_init_dma();
+    // Initialize DMA and ADC
+    adc_init();
+    adc_dma_init();
+    dma_init();
 
     while (1)
     {
+    	//PRINTF("In main(), addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
+		//printBits("In main(), DSR_BCR is: ", DMA0->DMA[0].DSR_BCR);
+
         if (dma_done == 1)
         {
-	    // Print buffer values.
-            PRINTF("\r\n");
-	    for (int i = 0; i < 5; i++)
-	    {
-	        PRINTF("In main(), buffer[%i]: %u\r\n", i, my_buffer[i]);
-	    }
+		    // Print buffer values.
+        	PRINTF("\r\n");
+        	int i;
+		    for (i = 0; i < 10; i++)
+		    {
+			    PRINTF("In main(), buffer[%i]: %u\r\n", i, my_buffer[i]);
+		    }
 
-	    delay_loop();
-            dma_done = 0;
+		    //delay_loop();
+
+		    dma_done = 0;
+
+		    // Initialize DMA and ADC
+		    //adc_init();
+		    //adc_dma_init();
+		    //dma_init();
         }
     }
 #endif

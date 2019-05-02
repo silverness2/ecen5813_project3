@@ -7,8 +7,8 @@
 /*
  * @file    led.c
  * @brief   Library definitions for blue led on the FRDM KL25Z MCU.
- * @vertion Project 2
- * @date    April 13, 2019
+ * @vertion Project 3 
+ * @date    May 1, 2019
  */
 
 #include "led.h"
@@ -55,12 +55,11 @@ void set_led_blue_off()
     GPIOD->PSOR = 0x02;
 }
 
-void delay(int ms)
+void toggle_led_blue()
 {
-    int i, j;
-    for (i = 0; i < ms; i++)
-    {
-        for (j = 0; j < 7000; j++)
-        {}
-    }
+    // Port Toggle Output
+    // 0: Corresponding bit in PDORn does not change.
+    // 1: Corresponding bit in PDORn is set to the inverse of its existing logic state.
+    GPIOD->PTOR = GPIO_PTOR_PTTO_MASK;
 }
+

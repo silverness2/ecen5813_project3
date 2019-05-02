@@ -8,8 +8,7 @@
  * @file    adc.c
  * @brief   Library definitions for ADC on the FRDM KL25Z MCU.
  * @version Project 3
- * @date    April 29, 2019
- * 
+ * @date    May 1, 2019
  */
 
 /*
@@ -24,19 +23,25 @@ Two registers associated with each I/O port:
 - Direction register
 */
 
+#include <stdlib.h>
+#include <math.h>
 #include "adc.h"
 #include "MKL25Z4.h"
 #include "fsl_debug_console.h"
+#include "led.h"
 
 
 // Define static vars.
 uint32_t my_buffer[NUM_SAMPLES];
 int32_t dma_done = 0;
+int32_t buff_num = 0;
+uint32_t curr_peak = 0;
+uint32_t lut[16] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16364, 32768};
 
 
 void adc_init()
 {
-    // Enable clock for PORT E (bit 13 = 0x2000).
+    // Enable clock for PORT E.
     SIM->SCGC5 |= SIM_SCGC5_PORTE(1);
 
     // Enable clock for ADC0 module.
@@ -70,128 +75,105 @@ void adc_init()
 
 void adc_dma_init()
 {
-    // TODO: Is this needed??
-    // Enables conversion complete interrupts. When COCO becomes set while the
-    // respective AIEN is high, an interrupt is asserted.
-    ADC0->SC1[0] |= ADC_SC1_AIEN_MASK;
+    // Clear registers.
+    ADC0->SC1[0] = 0;
+    ADC0->SC2 = 0;
+    
+    // DMA is enabled and will assert the ADC DMA request during an ADC
+    // conversion complete event noted when any of the SC1n[COCO] flags is
+    // asserted. (DMAEN = DMA Enable)
+    ADC0->SC2 |= ADC_SC2_DMAEN(1);
 
-	// Set the conversion to occur on channel 0.
-    // (bits 4-0 = ADCH = ADC input channel) (channel 0 = 00000)
-    ADC0->SC1[0] |= ADC_SC1_ADCH(0);
-
-	// DMA is enabled and will assert the ADC DMA request during an ADC
-	// conversion complete event noted when any of the SC1n[COCO] flags is
-	// asserted. (DMAEN = DMA Enable)
-	ADC0->SC2 |= ADC_SC2_DMAEN(1);
-
-    // TODO: Is this needed??
     // 0: Hardware average function disabled.
     // 1: Hardware average function enabled.
     ADC0->SC3 |= ADC_SC3_AVGE(1);
 
-    // TODO: Is this needed??
     // ADCO = Continuous Conversion Enable
     // 0: One conversion or one set of conversions if the hardware averag
     //    function is enabled, that is, AVGE=1, after initiating a conversion.
     // 1: Continuous conversions or sets of conversions if the hardware average
     //    function is enabled, that is, AVGE=1, after initiating a conversion.
     ADC0->SC3 |= ADC_SC3_ADCO(1);
+
+    // Set the conversion to occur on channel 0.
+    // (bits 4-0 = ADCH = ADC input channel) (channel 0 = 00000)
+    ADC0->SC1[0] = ADC_SC1_ADCH(0);
 }
 
 void dma_init()
 {
-	// Initialize clock for DMA multiplexer.
-	SIM->SCGC6 |= SIM_SCGC6_DMAMUX(1);
-
-	// Initialize clock for DMA.
-	SIM->SCGC7 |= SIM_SCGC7_DMA(1);
-
-	// Disable DMA MUX channel temporarily.
-	DMAMUX0->CHCFG[0] = 0x00;
-
-	// Set source address for channel to be ADC data register.
-	//(i.e location of the peripheral data register)
-	DMA0->DMA[0].SAR = (uint32_t)&ADC0->R[0];
-
-	// Set destination address as beginning of buffer.
-	DMA0->DMA[0].DAR = (uint32_t)&my_buffer;
-
-	// Number of bytes to be transferred in each service request of the channel.
-	// The DMA controller stops after a specified number of transfers.
-	DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_BCR(BYTE_COUNT);
-
-	// Set source data size to be 1, 2, or 4 bytes.
+    // Initialize clock for DMA multiplexer.
+    SIM->SCGC6 |= SIM_SCGC6_DMAMUX(1);
+    
+    // Initialize clock for DMA.
+    SIM->SCGC7 |= SIM_SCGC7_DMA(1);
+    
+    // Disable DMA MUX channel temporarily.
+    DMAMUX0->CHCFG[0] = 0x00;
+    
+    // Set source address for channel to be ADC data register.
+    //(i.e location of the peripheral data register)
+    DMA0->DMA[0].SAR = (uint32_t)&ADC0->R[0];
+    
+    // Set destination address as beginning of buffer.
+    DMA0->DMA[0].DAR = (uint32_t)&my_buffer;
+    
+    // Number of bytes to be transferred in each service request of the channel.
+    // The DMA controller stops after a specified number of transfers.
+    DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_BCR(BYTE_COUNT);
+    
+    // Set source data size to be 1, 2, or 4 bytes.
     // (i.e. Size of source bus cycle of the DMA controller.)
-	// (bits 21-20 = Source size, 00 => 32 bit, 10 => 16 bit)
-	DMA0->DMA[0].DCR |= DMA_DCR_SSIZE(0);
+    // (bits 21-20 = Source size, 00 => 32 bit, 10 => 16 bit)
+    DMA0->DMA[0].DCR |= DMA_DCR_SSIZE(0);
+    
+    // Set destination data size to be 1, 2, or 4 bytes.
+    // (i.e. Size of destination bus cycle for the DMA controller.)
+    // (bits 18-17 = Destination size, 00 => 32 bit, 10 => 16 bit)
+    DMA0->DMA[0].DCR |= DMA_DCR_DSIZE(0);
+    
+    // Set source to have no address update after each transfer.
+    // (SINC = Source Increment, 0 => No change to SAR after a successful
+    // transfer)
+    DMA0->DMA[0].DCR |= DMA_DCR_SINC(0);
+    
+    // Set destination with address increment.
+    // Controls whether destination address increments after each transfer.
+    // (DINC = Destination Increment, 1 => The DAR increments by 1,2,4
+    // depending on size of transfer).
+    DMA0->DMA[0].DCR |= DMA_DCR_DINC(1);
 
-	// Set destination data size to be 1, 2, or 4 bytes.
-	// (i.e. Size of destination bus cycle for the DMA controller.)
-	// (bits 18-17 = Destination size, 00 => 32 bit, 10 => 16 bit)
-	DMA0->DMA[0].DCR |= DMA_DCR_DSIZE(0);
-
-	// Set source to have no address update after each transfer.
-	// (SINC = Source Increment, 0 => No change to SAR after a successful
-	// transfer)
-	DMA0->DMA[0].DCR |= DMA_DCR_SINC(0);
-
-	// Set destination with address increment.
-	// Controls whether destination address increments after each transfer.
-	// (DINC = Destination Increment, 1 => The DAR increments by 1,2,4
-	// depending on size of transfer).
-	DMA0->DMA[0].DCR |= DMA_DCR_DINC(1);
-
-	// Enable interrupt (EINT) on completion of transfer.
-	// Determines whether an interrupt is generated by completing a transfer or
-	// by the occurrence of an error condition.
-	// 0: No interrupt is generated.
-	// 1: Interrupt signal is enabled.
-	DMA0->DMA[0].DCR |= DMA_DCR_EINT(1);
-
-    // TODO: Needed??
-	// Enable asynchronous DMA requests
-	// Enables the channel to support asynchronous DREQs while the MCU is in
-	// Stop mode.
-    DMA0->DMA[0].DCR |= DMA_DCR_EADREQ(1);
-
-	// Set CS = Cycle Steal.
-	// 0: DMA continuously makes read/write transfers until the BCR decrements
-	//    to 0.
-	// 1: Forces a single read/write transfer per request.
-    DMA0->DMA[0].DCR |= DMA_DCR_CS(0);
-
-    // Set the DMA_ERQ (Enable Request) to be able to initiate a DMA transfer
-    // when a hardware service request is issued.
-    // CAUTION: Be careful: a collision can occur between the START bit and
-	// D_REQ when the ERQ bit is 1.
-    // 1: Enables peripheral request to initiate transfer. A software-initiated
-	// request (setting the START bit) is always enabled.
-    DMA0->DMA[0].DCR |= DMA_DCR_ERQ(1);
-
-	// Set DMA channel 0 to transfer samples from ADC to buffer.
-	// (ENBL = 0x80 of DMAMUX_CHCFG (Channel Configuration) register)
-    DMAMUX0->CHCFG[0] |= DMAMUX_CHCFG_ENBL(1);
-
-	// Set DMA multiplexer to route DMA request from ADC to DMA channel 0.
+    // Enable interrupt (EINT) on completion of transfer.
+    // Determines whether an interrupt is generated by completing a transfer or
+    // by the occurrence of an error condition.
+    // 0: No interrupt is generated.
+    // 1: Interrupt signal is enabled.
+    DMA0->DMA[0].DCR |= DMA_DCR_EINT(1);
+    
+    // Set DMA channel 0 to transfer samples from ADC to buffer.
+    // (ENBL = 0x80 of DMAMUX_CHCFG (Channel Configuration) register)
+     DMAMUX0->CHCFG[0] |= DMAMUX_CHCFG_ENBL(1);
+    
+    // Set DMA multiplexer to route DMA request from ADC to DMA channel 0.
     // (i.e. Set the source for this channel.)
     // Source module = ADC, Source number = 40, (bits 5-0 = SOURCE)
     DMAMUX0->CHCFG[0] |= DMAMUX_CHCFG_SOURCE(40);
-
+    
     // For debugging...
-	PRINTF("In init(), addr of ADC->R[0] is: %p\r\n", &ADC0->R[0]); // addr of adc data reg
+    PRINTF("In init(), addr of ADC->R[0] is: %p\r\n", &ADC0->R[0]); // addr of adc data reg
     PRINTF("In init(), addr stored in DMA0->DMA[0].SAR is p: %p\r\n\r\n", DMA0->DMA[0].SAR); // addr stored in reg
     PRINTF("In init(), addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
-	PRINTF("In init(), addr stored in DMA[0]->DAR is: %p\r\n\r\n", DMA0->DMA[0].DAR); // addr stored in reg
-
+    PRINTF("In init(), addr stored in DMA[0]->DAR is: %p\r\n\r\n", DMA0->DMA[0].DAR); // addr stored in reg
+    
+    // Enable the interrupt for DMA0.
+    NVIC_EnableIRQ(DMA0_IRQn);
+    
     // Start the transfer.
-	// 0: DMA inactive
-	// 1: The DMA begins the transfer in accordance to the values in the TCDn.
-	//    START is cleared automatically after one module clock and always
-	//    reads as logic 0.
-	DMA0->DMA[0].DCR |= DMA_DCR_START(1);
-
-	// Enable the interrupt for DMA0.
-	NVIC_EnableIRQ(DMA0_IRQn);
+    // 0: DMA inactive
+    // 1: The DMA begins the transfer in accordance to the values in the TCDn.
+    //    START is cleared automatically after one module clock and always
+    //    reads as logic 0.
+    DMA0->DMA[0].DCR |= DMA_DCR_START(1);
 }
 
 int adc_did_complete_convert()
@@ -224,7 +206,8 @@ uint16_t adc_get_digital_output_blocking()
     return adc_get_digital_output();
 }
 
-// Attribution: https://www.reddit.com/r/C_Programming/comments/5hczva/integer_in_c_and_how_to_print_its_binary/
+// Attribution:
+// https://www.reddit.com/r/C_Programming/comments/5hczva/integer_in_c_and_how_to_print_its_binary/
 void printBits(char *name, uint32_t num)
 {
     unsigned int mask = 1 << ((sizeof(int) << 3) - 1);
@@ -236,42 +219,146 @@ void printBits(char *name, uint32_t num)
     PRINTF("\r\n");
 }
 
+// Peak level is a measurement of the highest sample value observed over an
+// interval.
+void compute_peak_level()
+{
+    // Get start and end buffer indices of buffer not being written to by DMA buffer.
+    uint32_t start = 0, end = 0;
+    
+    if (buff_num == 1)
+    {
+        start = 0;
+        end = NUM_SAMPLES/2;
+    }
+    else
+    {
+        start = NUM_SAMPLES/2;
+        end = NUM_SAMPLES;
+    }
+
+    // Compute current peak based on each sample in buffer.
+    // TODO: Is this accurate? Should first value be >= ?
+    for (int i = start; i < end; i++)
+    {
+        if (abs(my_buffer[i]) > curr_peak) // increase when abs value is higher than current sample value.
+        {
+    	    curr_peak = my_buffer[i];
+        }
+        else // decrease using a first order decay to zero.
+        {
+            // peak[n] = decay_coeff * peak[n-1]
+    	    curr_peak = (uint32_t)(DECAY_COEFF * (float)curr_peak);
+        }
+    }
+}
+
+float log_2(uint32_t value)
+{
+    return log((float)value) / log((float)2);
+}
+
+// TODO: Streamline!
+void show_dbfs()
+{
+    // Digital output range = [0, 65536] (max digital value of ADC data reg is
+    // 16 bits.
+    // dbFS range: [-15, 0] -> 16 values
+    // uint32_t lut[16] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048,
+    //                     4096, 8192, 16364, 32768}
+
+    // 2^x = lut_value
+    // log2 digital_value ~= x
+
+    // Get exp "start" range and validate.
+    int32_t exp = 0;
+    if (curr_peak >= 1)
+    {
+ 	exp = (int32_t)(log_2(curr_peak));
+    }
+    if (exp > 15)
+    {
+    	exp = 15;
+    }
+
+    // Get exp "end" range and validate.
+    int32_t end = exp + 1;
+    if (end > 15)
+    {
+	end = exp;
+    }
+
+    // Convert exp to dbFS: (max + min) - num
+    int32_t dbfs = 16 - exp;
+
+    // Use exp as index into lut and show which range the ADC value falls
+    // within based on the lut. Also show dbfs.
+    if (curr_peak < 1)
+    {
+        PRINTF("exp is: %i, lut raw 16-bit range is: [%u, %u] => dbFS is: -%i\r\n", exp, 0, lut[0], dbfs);
+    }
+    else
+    {
+        PRINTF("exp is: %i, lut raw 16-bit range is: [%u, %u] => dbFS is: -%i\r\n", exp, lut[exp], lut[end], dbfs);
+    }
+}
+
 void DMA0_IRQHandler(void)
 {
-	/*
-	DSR_BCR DONE flag:
-	Set when all DMA controller transactions complete as determined by transfer
-	count, or based on error conditions. When BCR reaches zero, DONE is set when
-	the final transfer completes successfully. DONE can also be used to abort a
-	transfer by resetting the status bits. When a transfer completes, software
-	must clear DONE before reprogramming the DMA.
-    0: DMA transfer is not yet complete. Writing a 0 has no effect.
-	1: DMA transfer completed. Writing a 1 to this bit clears all DMA status bits and should be used in an
-	   interrupt service routine to clear the DMA interrupt and error bits
-	*/
+    // DSR_BCR DONE flag:
+    // Set when all DMA controller transactions complete as determined by transfer
+    // count, or based on error conditions. When BCR reaches zero, DONE is set when
+    // the final transfer completes successfully. DONE can also be used to abort a
+    // transfer by resetting the status bits. When a transfer completes, software
+    // must clear DONE before reprogramming the DMA.
+    // 0: DMA transfer is not yet complete. Writing a 0 has no effect.
+    // 1: DMA transfer completed. Writing a 1 to this bit clears all DMA status bits and should be used in an
+    //    interrupt service routine to clear the DMA interrupt and error bits
+    
+    // Disable the interrupt for DMA0.
+    NVIC_DisableIRQ(DMA0_IRQn);
 
     // For debugging...
-    PRINTF("In IRQ() at start, addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
-	PRINTF("In IRQ() at start, addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
-	printBits("In IRQ() at start, DSR_BCR is: ", DMA0->DMA[0].DSR_BCR);
+    /*PRINTF("In IRQ() at start, addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
+    PRINTF("In IRQ() at start, addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
+    printBits("In IRQ() at start, DSR_BCR is: ", DMA0->DMA[0].DSR_BCR);*/
 
-	if (DMA0->DMA[0].DSR_BCR & DMA_DSR_BCR_DONE(1))
+    if (DMA_DSR_BCR_DONE(1))
+    {
+	// Clear the DMA interrupt and error bits.
+	DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_DONE(1);
+
+	// Reset BCR size.
+	DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_BCR(BYTE_COUNT);
+
+	// Necessary?
+	DMA0->DMA[0].SAR = (uint32_t)&ADC0->R[0];
+
+	// Reset destination address.
+        if (buff_num == 0)
 	{
-		// Clear the DMA interrupt and error bits.
-		DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_DONE(1);
-
-		// Reset BCR size.
-		DMA0->DMA[0].DSR_BCR |= DMA_DSR_BCR_BCR(BYTE_COUNT);
-
-		// Reset destination address to beginning.
-		DMA0->DMA[0].DAR = (uint32_t)&my_buffer;
-
-		dma_done = 1;
-
-	    // For debugging...
-	    PRINTF("In IRQ() after resetting DAR, addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
-		PRINTF("In IRQ() after resetting DAR, addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
-		printBits("In IRQ() after resetting DAR, DSR_BCR is: ", DMA0->DMA[0].DSR_BCR); // output giving: 1000000000 => 512 bytes, 512/4 = 128 elements
+	    DMA0->DMA[0].DAR = (uint32_t)&my_buffer + BYTE_COUNT;
+	    buff_num = 1;
 	}
+	else
+	{
+	    DMA0->DMA[0].DAR = (uint32_t)&my_buffer;
+	    buff_num = 0;
+	}
+
+	// Start the transfer.
+	DMA0->DMA[0].DCR |= DMA_DCR_START(1);
+
+	dma_done = 1;
+
+        // For debugging...
+        /*("In IRQ() after resetting DAR, addr of buffer is: %p\r\n", &my_buffer); // addr of buffer reg
+	PRINTF("In IRQ() after resetting DAR, addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
+	printBits("In IRQ() after resetting DAR, DSR_BCR is: ", DMA0->DMA[0].DSR_BCR); // output giving: 1000000000 => 512 bytes, 512/4 = 128 elements*/
+
+	// Toggle a blue led. Adding a for-loop delay so we can see the flicker.
+	for (int i = 0; i < 70000; i++) {}
+        toggle_led_blue();
+    }
 }
 

@@ -9,7 +9,7 @@
  * @brief   A program using ADC, DMA, DSP on the Freedom Freescale (FRDM)
  *          KL25Z Microcontroller (MCU).
  * @version Project 3
- * @date    April 29, 2019
+ * @date    May 1, 2019
  *
  * NOTES:
  * - Project run in the MCUXpresso IDE using SDK_2.x_FRDM_KL25Z version 2.0.0.
@@ -32,19 +32,25 @@
 #include "clock_config.h"
 #include "MKL25Z4.h"
 #include "fsl_debug_console.h"
-#include "led.h"
 #include "adc.h"
 
 //#define TEST_LED
 //#define USE_BLOCKING
 #define USE_INTERRUPT
-
+#define SHOW_BUFFER_VALUES
+#define NUM_SHOW_VALS 5
+#define SHOW_DBFS
 #define DELAY_MS 100
 
-static void delay_loop(void)
+
+void delay(int ms)
 {
-    uint32_t i = 0;
-    for (i = 0; i < 6000; i++) {}
+    int i, j;
+    for (i = 0; i < ms; i++)
+    {
+        for (j = 0; j < 7000; j++)
+        {}
+    }
 }
 
 int main(void) {
@@ -93,38 +99,54 @@ int main(void) {
 
 #ifdef USE_INTERRUPT
 
-    // Initialize DMA and ADC
+    // Initialize DMA and ADC.
     adc_init();
     adc_dma_init();
     dma_init();
 
+    // Initialize blue led.
+    led_blue_init();
+
     while (1)
     {
-    	//PRINTF("In main(), addr stored in DMA[0]->DAR is: %p\r\n", DMA0->DMA[0].DAR); // addr stored in reg
-		//printBits("In main(), DSR_BCR is: ", DMA0->DMA[0].DSR_BCR);
-
-        if (dma_done == 1)
+        if (dma_done)
         {
-		    // Print buffer values.
-        	PRINTF("\r\n");
-        	int i;
-		    for (i = 0; i < 10; i++)
-		    {
-			    PRINTF("In main(), buffer[%i]: %u\r\n", i, my_buffer[i]);
-		    }
+#ifdef SHOW_BUFFER_VALUES
+	    // Print buffer values.
+       	    int i;
+       	    if (buff_num == 1)
+       	    {
+                PRINTF("\r\nBuffer 0:\r\n");
+	        for (i = 0; i < NUM_SHOW_VALS; i++)
+	        {
+	            PRINTF("buffer[%i]: %u\r\n", i, my_buffer[i]);
+	        }
+            }
+            else
+            {
+                PRINTF("\r\nBuffer 1:\r\n");
+	        for (i = (NUM_SAMPLES/2); i < (NUM_SAMPLES/2) + NUM_SHOW_VALS; i++)
+	        {
+	            PRINTF("buffer[%i]: %u\r\n", i, my_buffer[i]);
+	        }
+       	    }
+            PRINTF("...\r\n");
+#endif
+            // Compute peak level.
+            compute_peak_level();
+            PRINTF("Peak level for buffer %i is: %u\r\n", !buff_num, curr_peak);
 
-		    //delay_loop();
+#ifdef SHOW_DBFS
+            // Compute dbfs and show.
+            show_dbfs();
+#endif
+            dma_done = 0;
 
-		    dma_done = 0;
-
-		    // Initialize DMA and ADC
-		    //adc_init();
-		    //adc_dma_init();
-		    //dma_init();
+	    // Enable the interrupt for DMA0.
+	    NVIC_EnableIRQ(DMA0_IRQn);
         }
     }
 #endif
 
     return 0;
 }
-
